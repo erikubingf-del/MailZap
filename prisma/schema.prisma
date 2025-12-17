@@ -1,0 +1,171 @@
+datasource db {
+  provider = "postgresql"
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model User {
+  id              Int      @id @default(autoincrement())
+  whatsappNumber  String   @unique
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  
+  emailAccounts   EmailAccount[]
+  preferences     Preference?
+  styleProfile    StyleProfile?
+  events          Event[]
+  emailMetadata   EmailMetadata[]
+  categoryRules   CategoryRule[]
+  notificationSchedules NotificationSchedule[]
+}
+
+model EmailAccount {
+  id                Int      @id @default(autoincrement())
+  userId            Int
+  user              User     @relation(fields: [userId], references: [id])
+  provider          String   // "gmail", "outlook"
+  emailAddress      String
+  oauthAccessToken  String
+  oauthRefreshToken String
+  tokenExpiry       DateTime
+  
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@unique([userId, provider], name: "userId_provider")
+}
+
+model EmailCategory {
+  id          Int      @id @default(autoincrement())
+  name        String   @unique // "banks", "apps", "promotions", "work", "personal"
+  displayName String   // "Banks", "Apps", "Promotions", "Work", "Personal"
+  description String?
+  icon        String?  // Emoji or icon identifier
+  
+  emails      EmailMetadata[]
+  rules       CategoryRule[]
+  schedules   NotificationSchedule[]
+}
+
+// LGPD Compliant - stores ONLY metadata, NO content
+model EmailMetadata {
+  id              Int      @id @default(autoincrement())
+  userId          Int
+  user            User     @relation(fields: [userId], references: [id])
+  
+  // Email identifiers
+  emailProviderId String   // Gmail message ID
+  threadId        String?
+  
+  // Metadata only
+  from            String
+  to              String[]
+  subject         String
+  date            DateTime
+  labels          String[]
+  
+  // Categorization
+  categoryId      Int?
+  category        EmailCategory? @relation(fields: [categoryId], references: [id])
+  isUrgent        Boolean  @default(false)
+  hasAttachment   Boolean  @default(false)
+  attachmentTypes String[] // File extensions only, not content
+  
+  // Summary (generated, not stored content)
+  summary         String?  // AI-generated summary
+  
+  // Notification tracking
+  notified        Boolean  @default(false)
+  notifiedAt      DateTime?
+  
+  createdAt       DateTime @default(now())
+  
+  @@index([userId, date])
+  @@index([userId, categoryId])
+}
+
+model CategoryRule {
+  id          Int      @id @default(autoincrement())
+  userId      Int
+  user        User     @relation(fields: [userId], references: [id])
+  categoryId  Int
+  category    EmailCategory @relation(fields: [categoryId], references: [id])
+  
+  // Rule criteria
+  ruleType    String   // "sender_domain", "sender_email", "subject_keyword", "from_contains"
+  pattern     String   // The actual pattern to match
+  confidence  Float    @default(1.0) // 0.0 to 1.0, learned from user behavior
+  
+  createdAt   DateTime @default(now())
+  
+  @@index([userId, categoryId])
+}
+
+model NotificationSchedule {
+  id          Int      @id @default(autoincrement())
+  userId      Int
+  user        User     @relation(fields: [userId], references: [id])
+  categoryId  Int
+  category    EmailCategory @relation(fields: [categoryId], references: [id])
+  
+  // Schedule settings
+  deliveryMode String  // "immediate", "batched_daily", "batched_weekly"
+  timesPerDay  Int?    // 1 or 2 for batched_daily
+  time1        String? // HH:MM format, e.g., "09:00"
+  time2        String? // HH:MM format for second daily batch
+  weeklyDay    Int?    // 0-6 for batched_weekly (0 = Sunday)
+  weeklyTime   String? // HH:MM format
+  
+  @@unique([userId, categoryId])
+}
+
+model Preference {
+  id                Int      @id @default(autoincrement())
+  userId            Int      @unique
+  user              User     @relation(fields: [userId], references: [id])
+  
+  // Legacy fields (can be removed later)
+  promoHandling     String?  // "none", "daily", "weekly", "urgent_only"
+  importantSenders  Json?    // List of strings
+  importantDomains  Json?    // List of strings
+  importantKeywords Json?    // List of strings
+  
+  // New fields
+  onboardingCompleted Boolean @default(false)
+  inboxScanned        Boolean @default(false)
+  
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+}
+
+model StyleProfile {
+  id            Int      @id @default(autoincrement())
+  userId        Int      @unique
+  user          User     @relation(fields: [userId], references: [id])
+  
+  sampleTexts   Json     // List of strings (writing samples)
+  inferredTone  String?  // "formal", "semi-formal", "casual"
+  
+  // Learned style attributes
+  avgParagraphLength Int?
+  usesGreeting       Boolean @default(true)
+  greetingStyle      String? // "Hi", "Hello", "Dear", etc.
+  usesSignature      Boolean @default(true)
+  signatureStyle     String? // "Best", "Regards", etc.
+  formalityScore     Float?  // 0.0 to 1.0
+  
+  lastUpdated   DateTime @default(now())
+}
+
+model Event {
+  id        Int      @id @default(autoincrement())
+  userId    Int
+  user      User     @relation(fields: [userId], references: [id])
+  type      String   // "email_received", "email_sent", "category_learned", etc.
+  payload   Json
+  createdAt DateTime @default(now())
+  
+  @@index([userId, createdAt])
+}
